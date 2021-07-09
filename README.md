@@ -222,7 +222,7 @@ return msg;
 Shows object in the form: 
 ![image](https://user-images.githubusercontent.com/87130809/125010535-9e298180-e05e-11eb-867f-b37b8f6466f4.png)
 
-##Node JS
+## Node JS
 The similar method by using mqtt can be applied in node js
 
 **CODE**:
