@@ -1,0 +1,255 @@
+#include <LiquidCrystal.h>
+#include <avr/sleep.h>//this AVR library contains the methods that controls the sleep modes
+#include <DHT.h>
+#include <DHT_U.h>
+#include <TheThingsNetwork.h>
+
+
+#define interruptPin 2 //Pin we are going to use to wake up the Arduino
+#define LED_GREEN A0
+#define LED_RED A1
+#define Get_data_button 4
+#define Contrast 3
+#define Backlight 5 
+#define button_to_skip_buzzer 13
+#define loraSerial Serial1
+#define debugSerial Serial
+// Replace REPLACE_ME with TTN_FP_EU868 or TTN_FP_US915
+#define freqPlan TTN_FP_EU868
+
+LiquidCrystal lcd(12,11,10,9,8,7);
+DHT dht(6,DHT11);
+
+
+
+// Set your AppEUI and AppKey
+const char *appEui = "0004A30B001C2043";
+const char *appKey = "038657DCBDE3CF430D275032C21B5A00";
+
+int switchState = 0;     
+int trigger_pin = A4;
+
+int echo_pin = A3;
+
+int buzzer_pin = A2; 
+
+int time;
+
+int8_t distance; // 1 byte - to send to lora 
+
+int dist; // to display on LCD screen 
+
+
+TheThingsNetwork ttn(loraSerial, debugSerial, freqPlan);
+
+
+
+void setup() {
+
+   pinMode(Get_data_button, INPUT);
+   pinMode(LED_GREEN,OUTPUT);//We use the led on pin 13 to indecate when Arduino is A sleep
+   pinMode(interruptPin,INPUT_PULLUP);//Set pin d2 to input using the buildin pullup resistor
+   pinMode(LED_RED,OUTPUT);
+   pinMode (trigger_pin, OUTPUT); 
+   pinMode (echo_pin, INPUT);
+   pinMode (buzzer_pin, OUTPUT);
+
+
+    
+   ttn.onMessage(message); // passing function to handle downlink data
+   dht.begin();
+   analogWrite(Backlight,255);// backlight 
+   analogWrite(Contrast,100); //sets the contrast of PWM 
+   lcd.begin(16, 2);
+ 
+
+   
+  loraSerial.begin(57600);
+  debugSerial.begin(115200);
+ 
+  while (!Serial);
+      // wait for serial port to connect. Needed for Leonardo only
+
+  
+  while (!debugSerial && millis() < 10000);
+  
+   
+
+  lcd.print("-- STATUS");
+  ttn.showStatus();
+  lcd.clear();
+  lcd.print("-- JOIN");
+  ttn.join(appEui, appKey);
+
+
+  
+}
+
+void loop() {
+
+
+ uint32_t humidity = dht.readHumidity(false)*100;  
+ uint32_t temp = dht.readTemperature(false)*100; 
+
+ float hum= dht.readHumidity(false);
+ float tempr= dht.readTemperature(false);
+
+  byte payload[5];// for transmiting data 
+  
+  lcd.clear();
+ lcd.print("START");
+ delay(2000);
+ lcd.clear();
+
+ switchState =buttonWait(Get_data_button);
+ if(switchState == HIGH){
+
+ Ultrasonic();
+
+    lcd.print("Distance:");
+    lcd.setCursor(0,1);
+    lcd.print(dist);
+    delay(2000);
+    lcd.clear();
+    delay(500);
+
+
+    lcd.setCursor(0, 0);
+    lcd.print("Temp");
+    lcd.setCursor(8,0);
+    lcd.print("Humidity");
+    lcd.setCursor(0,1);
+    lcd.print(tempr);
+    lcd.setCursor(8,1);
+    lcd.print(hum);
+
+ 
+   
+  
+  byte payload[5];
+  payload[0]= highByte(humidity);
+  payload[1]=lowByte(humidity);
+  payload[2]=highByte(temp);
+  payload[3]=lowByte(temp);
+  payload[4]=(distance);
+
+  Transmit_Data(payload,sizeof(payload)); //passing payload and length for it, length needed for decoder in tts 
+  
+
+
+
+     }
+   lcd.clear();
+   lcd.print("Reminder");
+   delay(2000);
+   Take_Medicine_Reminder();
+     lcd.clear();
+     lcd.print("Going to bed");
+     delay(4000);
+     lcd.clear();
+
+
+ 
+ delay(2000);//wait 5 seconds before going to sleep
+ Going_To_Sleep();
+
+
+
+ 
+}
+
+void Going_To_Sleep(){
+    sleep_enable();//Enabling sleep mode
+    attachInterrupt(digitalPinToInterrupt(2), wakeUp, LOW);//attaching a interrupt 1 to pin d2
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);//Setting the sleep mode, in our case full sleep
+    delay(1000); //wait a second to allow the led to be turned off before going to sleep
+    digitalWrite(LED_RED,LOW);
+    digitalWrite(LED_GREEN,LOW);
+    analogWrite(Backlight,0);
+    analogWrite(Contrast,255);
+    sleep_cpu();//activating sleep mode
+    lcd.print("woke up");
+    delay(2000);
+    lcd.clear();
+    
+  }
+
+void wakeUp(){
+    analogWrite (Backlight,255);
+    analogWrite (Contrast,100);
+
+  delay(2000);
+  lcd.clear();
+   sleep_disable();//Disable sleep mode
+  detachInterrupt(digitalPinToInterrupt(2)); //Removes the interrupt from pin 2;
+}
+
+int buttonWait(int buttonPin){
+  int buttonState = 0;
+  while(1){
+    buttonState = digitalRead(buttonPin);
+    if (buttonState == HIGH) {
+      return (buttonState);
+    }
+  }
+}
+
+  void message(const uint8_t *payload, size_t size, port_t port){ //size - lenght
+
+ 
+
+ if(payload[0]==1){
+  digitalWrite(LED_GREEN, LOW); 
+  digitalWrite(LED_RED, HIGH);
+
+
+  
+}
+
+else if(payload[0] == 2) {
+   digitalWrite(LED_GREEN, HIGH); 
+  digitalWrite(LED_RED, HIGH);
+
+  
+}
+else {
+   digitalWrite(LED_GREEN, LOW); 
+   digitalWrite(LED_RED, LOW);
+
+
+}
+
+}
+
+void Ultrasonic(){
+    digitalWrite (trigger_pin, HIGH);
+    delayMicroseconds (10);
+    digitalWrite (trigger_pin, LOW);
+    time = pulseIn (echo_pin, HIGH);
+    distance = (time * 0.034) / 2;
+    Serial.println("" +String(distance));
+    dist = distance; 
+    
+}
+
+void Take_Medicine_Reminder(){
+  int button1 =0;
+  int button2 = 0;
+  while(1){
+    button1=digitalRead(Get_data_button);
+    button2 =digitalRead(button_to_skip_buzzer);
+    if (button1== HIGH){
+        tone(buzzer_pin, 1500); // Send 1KHz sound signal...
+        delay(1000);        // ...for 1 sec
+        noTone(buzzer_pin);     // Stop sound...
+        delay(1000);        // ...for 1sec    
+      return;
+    }
+    else if(button2 == HIGH){
+      return;}
+    }}
+
+    void Transmit_Data(byte data[], int size1){
+     ttn.sendBytes(data, size1);
+      delay(1000);
+    }
